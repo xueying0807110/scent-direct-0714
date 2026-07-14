@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lumora Scented Candle — Direct Display</title>
+  <link rel="preload" as="image" href="product-image.webp" type="image/webp" />
+  <title>Lumora Scented Candle — Dropdown</title>
   <style>
     :root {
       --text: #111111;
@@ -93,6 +94,7 @@
     }
 
     .field {
+      min-height: 303px;
       margin-bottom: 12px;
     }
 
@@ -118,15 +120,17 @@
       white-space: nowrap;
     }
 
-    .scent-options {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 4px;
+    .custom-select {
+      position: relative;
+      width: 100%;
+      z-index: 20;
     }
 
-    .scent-option {
+    .custom-select-trigger {
+      position: relative;
+      width: 100%;
       min-height: 28px;
-      padding: 4px 14px;
+      padding: 4px 36px 4px 14px;
       border: 1px solid var(--border);
       border-radius: 0;
       background: var(--white);
@@ -138,14 +142,76 @@
       cursor: pointer;
     }
 
-    .scent-option:hover,
-    .scent-option:focus-visible {
+    .custom-select-trigger::after {
+      content: "";
+      position: absolute;
+      right: 13px;
+      top: 8px;
+      width: 7px;
+      height: 7px;
+      border-right: 1px solid #222;
+      border-bottom: 1px solid #222;
+      transform: rotate(45deg);
+      transition: transform 120ms ease;
+    }
+
+    .custom-select.open .custom-select-trigger::after {
+      top: 11px;
+      transform: rotate(225deg);
+    }
+
+    .custom-select.open .custom-select-trigger {
       border-color: #111;
+    }
+
+    .custom-select.has-selection .custom-select-trigger {
+      border-color: #111;
+      background: #fafafa;
+      color: #111;
+      font-weight: 600;
+      box-shadow: inset 3px 0 0 #111;
+    }
+
+    .custom-options {
+      display: none;
+      position: absolute;
+      top: 28px;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      margin: -1px 0 0;
+      padding: 0;
+      list-style: none;
+      border: 1px solid #111;
+      background: var(--white);
+      box-shadow: 0 5px 14px rgba(0, 0, 0, 0.08);
+    }
+
+    .custom-select.open .custom-options {
+      display: block;
+    }
+
+    .custom-option {
+      min-height: 32px;
+      padding: 6px 14px;
+      display: flex;
+      align-items: center;
+      background: var(--white);
+      color: var(--text);
+      font: inherit;
+      font-size: 11px;
+      line-height: 1.35;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .custom-option:hover,
+    .custom-option:focus-visible {
+      background: #f5f5f5;
       outline: none;
     }
 
-    .scent-option.is-selected {
-      border-color: #111;
+    .custom-option.is-selected {
       background: #fafafa;
       color: #111;
       font-weight: 600;
@@ -223,6 +289,10 @@
         display: block;
       }
 
+      .field {
+        min-height: 303px;
+      }
+
       .page {
         grid-template-columns: 1fr;
         gap: 20px;
@@ -233,7 +303,6 @@
       .image-panel { min-height: 360px; order: -1; }
       .product-image { width: 92%; height: 340px; }
       .action-area { margin-top: 12px; }
-      .scent-options { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -253,13 +322,16 @@
           <span class="option-count">9 options</span>
         </div>
 
-        <div
-          class="scent-options"
-          id="scentOptions"
-          role="listbox"
-          aria-labelledby="scentLabel"
-          aria-label="Available scent options"
-        ></div>
+        <div class="custom-select" id="scentSelect" aria-labelledby="scentLabel">
+          <button
+            class="custom-select-trigger"
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded="false"
+            aria-label="Select a scent"
+          ></button>
+          <ul class="custom-options" role="listbox" aria-label="Available scent options"></ul>
+        </div>
       </div>
 
       <div class="action-area">
@@ -275,7 +347,11 @@
     <section class="image-panel" aria-label="Product image area">
       <img
         class="product-image"
-        src="product-image.png"
+        src="product-image.webp"
+        width="900"
+        height="900"
+        decoding="async"
+        fetchpriority="high"
         alt="Lumora scented candle with a silver lid"
       />
     </section>
@@ -294,7 +370,9 @@
       'Cedarwood'
     ];
 
-    const scentOptions = document.getElementById('scentOptions');
+    const scentSelect = document.getElementById('scentSelect');
+    const trigger = scentSelect.querySelector('.custom-select-trigger');
+    const optionList = scentSelect.querySelector('.custom-options');
     const decisionMessage = document.getElementById('decisionMessage');
     const buttonRow = document.querySelector('.button-row');
 
@@ -302,8 +380,9 @@
     let scentOrder = [];
     let pageOpenTime = new Date().toISOString();
     const pageOpenTimestamp = Date.now();
-    let firstOptionReviewTime = '';
+    let firstDropdownOpenTime = '';
     let firstOptionClickTime = '';
+    let dropdownOpenCount = 0;
     let optionClicks = 0;
     let firstChoiceClicked = '';
     const choiceClickSequence = [];
@@ -339,13 +418,31 @@
       return result;
     }
 
+    function buildOptions() {
+      scentOrder = shuffleArray(SCENTS);
+      window.lumoraScentOrder = [...scentOrder];
+      optionList.innerHTML = '';
+
+      scentOrder.forEach((scent) => {
+        const option = document.createElement('li');
+        option.className = 'custom-option';
+        option.setAttribute('role', 'option');
+        option.setAttribute('aria-selected', 'false');
+        option.setAttribute('tabindex', '0');
+        option.dataset.value = scent;
+        option.textContent = scent;
+        optionList.appendChild(option);
+      });
+    }
+
     function markOptionsReviewed() {
       optionReviewed = '1';
-      if (!firstOptionReviewTime) {
-        firstOptionReviewTime = new Date().toISOString();
+
+      if (!firstDropdownOpenTime) {
+        firstDropdownOpenTime = new Date().toISOString();
       }
+
       decisionMessage.classList.remove('is-visible');
-      reportContentHeight();
     }
 
     function startOptionHover(option) {
@@ -371,6 +468,29 @@
         durationMs
       });
       activeHover = null;
+    }
+
+    function openDropdown() {
+      if (scentSelect.classList.contains('open')) return;
+
+      scentSelect.classList.add('open');
+      trigger.setAttribute('aria-expanded', 'true');
+      dropdownOpenCount += 1;
+      markOptionsReviewed();
+    }
+
+    function closeDropdown() {
+      endOptionHover();
+      scentSelect.classList.remove('open');
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+
+    function toggleDropdown() {
+      if (scentSelect.classList.contains('open')) {
+        closeDropdown();
+      } else {
+        openDropdown();
+      }
     }
 
 
@@ -406,8 +526,8 @@
 
       const liveInteraction = {
         type: 'lumora_choice_interaction',
-        displayCondition: 'direct_display',
-        presentationFormat: 'direct',
+        displayCondition: 'dropdown',
+        presentationFormat: 'dropdown',
         choice,
         inputMethod,
         sequenceNumber: String(choiceClickSequence.length),
@@ -434,57 +554,91 @@
       window.parent.postMessage(liveInteraction, '*');
     }
 
-    function selectOption(option) {
+    function selectOption(option, inputMethod = 'pointer_click') {
       selectedScent = option.dataset.value || '';
       optionClicks += 1;
-      markOptionsReviewed();
+      optionReviewed = '1';
 
       if (!firstOptionClickTime) {
         firstOptionClickTime = new Date().toISOString();
       }
 
-      recordChoiceSelection(selectedScent, 'pointer_click');
+      recordChoiceSelection(selectedScent, inputMethod);
 
-      scentOptions.querySelectorAll('.scent-option').forEach((item) => {
+      trigger.textContent = selectedScent;
+      scentSelect.classList.add('has-selection');
+
+      optionList.querySelectorAll('.custom-option').forEach((item) => {
         const isSelected = item === option;
         item.classList.toggle('is-selected', isSelected);
         item.setAttribute('aria-selected', isSelected ? 'true' : 'false');
       });
+
+      decisionMessage.classList.remove('is-visible');
+      closeDropdown();
     }
 
-    function buildOptions() {
-      scentOrder = shuffleArray(SCENTS);
-      window.lumoraScentOrder = [...scentOrder];
-      scentOptions.innerHTML = '';
+    trigger.addEventListener('click', toggleDropdown);
 
-      scentOrder.forEach((scent) => {
-        const option = document.createElement('button');
-        option.className = 'scent-option';
-        option.type = 'button';
-        option.setAttribute('role', 'option');
-        option.setAttribute('aria-selected', 'false');
-        option.dataset.value = scent;
-        option.textContent = scent;
-        scentOptions.appendChild(option);
-      });
-    }
+    trigger.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        openDropdown();
+        optionList.querySelector('.custom-option')?.focus();
+      }
 
-    scentOptions.addEventListener('pointerenter', markOptionsReviewed);
-    scentOptions.addEventListener('focusin', markOptionsReviewed);
-    scentOptions.addEventListener('touchstart', markOptionsReviewed, { passive: true });
-
-    scentOptions.addEventListener('click', (event) => {
-      const option = event.target.closest('.scent-option');
-      if (option) selectOption(option);
+      if (event.key === 'Escape') {
+        closeDropdown();
+      }
     });
 
-    scentOptions.addEventListener('pointerover', (event) => {
-      const option = event.target.closest('.scent-option');
+    optionList.addEventListener('click', (event) => {
+      const option = event.target.closest('.custom-option');
+      if (option) selectOption(option, 'pointer_click');
+    });
+
+    optionList.addEventListener('pointerover', (event) => {
+      const option = event.target.closest('.custom-option');
       if (option && !option.contains(event.relatedTarget)) startOptionHover(option);
     });
-    scentOptions.addEventListener('pointerout', (event) => {
-      const option = event.target.closest('.scent-option');
+    optionList.addEventListener('pointerout', (event) => {
+      const option = event.target.closest('.custom-option');
       if (option && !option.contains(event.relatedTarget)) endOptionHover(option);
+    });
+
+    optionList.addEventListener('keydown', (event) => {
+      const option = event.target.closest('.custom-option');
+      if (!option) return;
+
+      const options = [...optionList.querySelectorAll('.custom-option')];
+      const currentIndex = options.indexOf(option);
+
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        selectOption(option, event.key === 'Enter' ? 'keyboard_enter' : 'keyboard_space');
+      }
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        options[(currentIndex + 1) % options.length].focus();
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        options[(currentIndex - 1 + options.length) % options.length].focus();
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeDropdown();
+        trigger.focus();
+      }
+    });
+
+    document.addEventListener('click', (event) => {
+      if (!scentSelect.contains(event.target)) {
+        closeDropdown();
+      }
     });
 
     buttonRow.addEventListener('click', (event) => {
@@ -499,7 +653,6 @@
         invalidButtonClicks += 1;
         decisionMessage.textContent = 'Please select a scent before adding it to your cart.';
         decisionMessage.classList.add('is-visible');
-        reportContentHeight();
         return;
       }
 
@@ -507,7 +660,6 @@
         invalidButtonClicks += 1;
         decisionMessage.textContent = 'Please review the scent options before leaving.';
         decisionMessage.classList.add('is-visible');
-        reportContentHeight();
         return;
       }
 
@@ -522,11 +674,12 @@
         product: 'Lumora Classic Glass Scented Candle',
         price: '$18',
         productChosen: action === 'add_to_cart' ? '1' : '0',
-        displayCondition: 'direct_display',
-        presentationFormat: 'direct',
+        displayCondition: 'dropdown',
+        presentationFormat: 'dropdown',
         pageOpenTime,
-        firstOptionReviewTime,
+        firstDropdownOpenTime,
         firstOptionClickTime,
+        dropdownOpenCount: String(dropdownOpenCount),
         optionClicks: String(optionClicks),
         firstChoiceClicked,
         lastChoiceClicked: selectedScent,
